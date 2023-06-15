@@ -96,9 +96,55 @@ var _ = Describe("IP ranges", func() {
 	})
 
 	It("Should reject a network that's too small", func() {
+		r := Range{Subnet: mustSubnet("192.0.2.0/32")}
+		err := r.Canonicalize()
+		Expect(err).Should(MatchError("Network 192.0.2.0/32 too small to allocate from"))
+	})
+
+	It("Should not reject a network that's almost too small", func() {
 		r := Range{Subnet: mustSubnet("192.0.2.0/31")}
 		err := r.Canonicalize()
-		Expect(err).Should(MatchError("Network 192.0.2.0/31 too small to allocate from"))
+		if err != nil {
+		   Fail(err.Error())
+		}
+	})
+
+	It("Should properly allocate the router IP of a /30", func() {
+		r := Range{Subnet: mustSubnet("192.0.2.0/30")}
+		err := r.Canonicalize()
+		if err != nil {
+		   Fail(err.Error())
+		}
+		Expect(r.Gateway.String()).To(Equal("192.0.2.1"))
+	})
+
+	It("Should calculate the right range for a /30", func() {
+		r := Range{Subnet: mustSubnet("192.0.2.0/30")}
+		err := r.Canonicalize()
+		if err != nil {
+		   Fail(err.Error())
+		}
+		Expect(r.RangeStart.String()).To(Equal("192.0.2.1"))
+		Expect(r.RangeEnd.String()).To(Equal("192.0.2.2"))
+	})
+
+	It("Should properly allocate the router IP of a /31", func() {
+		r := Range{Subnet: mustSubnet("192.0.2.0/31")}
+		err := r.Canonicalize()
+		if err != nil {
+		   Fail(err.Error())
+		}
+		Expect(r.Gateway.String()).To(Equal("192.0.2.0"))
+	})
+
+	It("Should calculate the right range for a /31", func() {
+		r := Range{Subnet: mustSubnet("192.0.2.0/31")}
+		err := r.Canonicalize()
+		if err != nil {
+		   Fail(err.Error())
+		}
+		Expect(r.RangeStart.String()).To(Equal("192.0.2.1"))
+		Expect(r.RangeEnd.String()).To(Equal("192.0.2.1"))
 	})
 
 	It("should reject invalid RangeStart and RangeEnd specifications", func() {

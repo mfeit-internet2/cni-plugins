@@ -29,10 +29,9 @@ func (r *Range) Canonicalize() error {
 		return err
 	}
 
-	// Can't create an allocator for a network with no addresses, eg
-	// a /32 or /31
+	// Can't create an allocator for IPv4 /32s.
 	ones, masklen := r.Subnet.Mask.Size()
-	if ones > masklen-2 {
+	if ones > masklen-1 {
 		return fmt.Errorf("Network %s too small to allocate from", (*net.IPNet)(&r.Subnet).String())
 	}
 
@@ -40,7 +39,10 @@ func (r *Range) Canonicalize() error {
 		return fmt.Errorf("IPNet IP and Mask version mismatch")
 	}
 
-	// Ensure Subnet IP is the network address, not some other address
+	subnet_mask_size, _ := r.Subnet.Mask.Size()
+
+	// Ensure Subnet IP is the network address, not some other
+	// address.  For IPv4 /31s, they're equal.
 	networkIP := r.Subnet.IP.Mask(r.Subnet.Mask)
 	if !r.Subnet.IP.Equal(networkIP) {
 		return fmt.Errorf("Network has host bits set. For a subnet mask of length %d the network address is %s", ones, networkIP.String())
@@ -48,7 +50,12 @@ func (r *Range) Canonicalize() error {
 
 	// If the gateway is nil, claim .1
 	if r.Gateway == nil {
-		r.Gateway = ip.NextIP(r.Subnet.IP)
+		// IPv4 /31s get the network address
+		if (r.Subnet.IP.To4() != nil) && (subnet_mask_size == 31) {
+			r.Gateway = r.Subnet.IP
+		} else {
+			r.Gateway = ip.NextIP(r.Subnet.IP)
+		}
 	} else {
 		if err := canonicalizeIP(&r.Gateway); err != nil {
 			return err
@@ -81,7 +88,11 @@ func (r *Range) Canonicalize() error {
 			return fmt.Errorf("RangeEnd %s not in network %s", r.RangeEnd.String(), (*net.IPNet)(&r.Subnet).String())
 		}
 	} else {
-		r.RangeEnd = lastIP(r.Subnet)
+		if (r.Subnet.IP.To4() != nil) && (subnet_mask_size == 31) {
+			r.RangeEnd = firstIP(r.Subnet)
+		} else {
+			r.RangeEnd = lastIP(r.Subnet)
+		}
 	}
 
 	return nil
@@ -152,10 +163,37 @@ func canonicalizeIP(ip *net.IP) error {
 	return fmt.Errorf("IP %s not v4 nor v6", *ip)
 }
 
+// Determine the first IP of a subnet, excluding the network if IPv4
+func firstIP(subnet types.IPNet) net.IP {
+	var end net.IP
+
+	// All IPv4 subnets except /31s go one past the network number.
+	// /31s use the netwok number.
+	var limit int = len(subnet.IP)
+	if subnet.IP.To4() != nil && len(subnet.Mask) == 31 {
+	   limit += 1
+	}
+
+	for i := 0; i < limit; i++ {
+		end = append(end, subnet.IP[i]|^subnet.Mask[i])
+	}
+
+	return end
+}
+
+
 // Determine the last IP of a subnet, excluding the broadcast if IPv4
 func lastIP(subnet types.IPNet) net.IP {
 	var end net.IP
-	for i := 0; i < len(subnet.IP); i++ {
+
+	// All IPv4 subnets except /31s go one less than the end.
+	// /31s go all the way to the end.
+	var limit int = len(subnet.IP)
+	if subnet.IP.To4() != nil && len(subnet.Mask) == 31 {
+	   limit += 1
+	}
+
+	for i := 0; i < limit; i++ {
 		end = append(end, subnet.IP[i]|^subnet.Mask[i])
 	}
 	if subnet.IP.To4() != nil {
